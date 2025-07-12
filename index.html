@@ -1,1 +1,593 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>অনলাইন ভর্তি ফর্ম</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Kalpurush Font from Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Kalpurush&display=swap" rel="stylesheet">
+    <!-- html2canvas CDN for image generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
+    <style>
+        body {
+            font-family: 'Kalpurush', sans-serif;
+            background-color: #f8fafc; /* Light gray background */
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #fbcfe8; /* Light pink */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #f472b6; /* Deeper pink */
+        }
+
+        /* Styles for the image content container (off-screen for rendering) */
+        #imageContentForDownload {
+            position: absolute;
+            left: -9999px;
+            top: -9999px;
+            width: 794px; /* A4 width at 96dpi for better image generation consistency */
+            padding: 1in; /* Add some padding to mimic document margins */
+            box-sizing: border-box;
+            z-index: -1;
+            background-color: white;
+            color: #333;
+        }
+
+        /* Spinner animation */
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #f472b6; /* Pink spinner */
+            width: 40px;
+            height: 40px;
+            -webkit-animation: spin 1s linear infinite; /* Safari */
+            animation: spin 1s linear infinite;
+        }
+
+        /* Safari */
+        @-webkit-keyframes spin {
+            0% { -webkit-transform: rotate(0deg); }
+            100% { -webkit-transform: rotate(360deg); }
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Success checkmark animation */
+        .checkmark-circle {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            display: block;
+            stroke-width: 2;
+            stroke: #fff;
+            margin: 10px auto;
+            box-shadow: inset 0px 0px 0px #4CAF50;
+            -webkit-animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+            animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+        }
+
+        .checkmark-circle-success {
+            background-color: #4CAF50; /* Green background for success */
+        }
+
+        .checkmark-circle-error {
+            background-color: #f44336; /* Red background for error */
+        }
+
+        .checkmark-circle-path {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            stroke: #fff;
+            -webkit-animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+
+        @-webkit-keyframes stroke {
+            100% { stroke-dashoffset: 0; }
+        }
+
+        @keyframes stroke {
+            100% { stroke-dashoffset: 0; }
+        }
+
+        @-webkit-keyframes fill {
+            100% { box-shadow: inset 0px 0px 0px 50px #4CAF50; }
+        }
+
+        @keyframes fill {
+            100% { box-shadow: inset 0px 0px 0px 50px #4CAF50; }
+        }
+
+        @-webkit-keyframes scale {
+            0%, 100% { -webkit-transform: none; }
+            50% { -webkit-transform: scale3d(1.1, 1.1, 1); }
+        }
+
+        @keyframes scale {
+            0%, 100% { transform: none; }
+            50% { transform: scale3d(1.1, 1.1, 1); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <!-- Main Application Container -->
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-3xl border border-pink-100">
+
+        <!-- Student List Page -->
+        <div id="studentListPage" class="page">
+            <h1 class="text-4xl font-bold text-center text-pink-600 mb-8">ভর্তিপ্রাপ্ত শিক্ষার্থীদের তালিকা</h1>
+
+            <div class="flex flex-col md:flex-row justify-center items-center gap-4 mb-6">
+                <button id="applyNewButton"
+                        class="px-6 py-3 bg-pink-500 text-white font-semibold rounded-full shadow-lg hover:bg-pink-600 focus:outline-none focus:ring-4 focus:ring-pink-300 transition duration-300 ease-in-out transform hover:scale-105 w-full md:w-auto">
+                    নতুন আবেদন করুন
+                </button>
+                <!-- "শিক্ষার্থী খুঁজুন" button removed as requested -->
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-pink-200">
+                <table class="min-w-full bg-white">
+                    <thead>
+                        <tr class="bg-pink-100 text-pink-700">
+                            <th class="py-3 px-4 text-left text-sm font-semibold uppercase tracking-wider rounded-tl-lg">রোল নম্বর</th>
+                            <th class="py-3 px-4 text-left text-sm font-semibold uppercase tracking-wider rounded-tr-lg">শিক্ষার্থীর নাম</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentTableBody" class="divide-y divide-pink-100">
+                        <!-- Student data will be injected here by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+            <p id="noStudentsMessage" class="text-center text-gray-500 mt-6 hidden">কোনো শিক্ষার্থী পাওয়া যায়নি।</p>
+        </div>
+
+        <!-- Admission Form Page (Initially Hidden) -->
+        <div id="admissionFormPage" class="page hidden">
+            <h1 class="text-4xl font-bold text-center text-pink-600 mb-8">ভর্তি আবেদন</h1>
+
+            <form id="admissionForm" class="space-y-6">
+                <!-- Personal Information Section -->
+                <fieldset class="border border-pink-300 p-6 rounded-xl shadow-sm">
+                    <legend class="text-2xl font-semibold text-pink-500 px-3 -ml-3">ব্যক্তিগত তথ্য</legend>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <div>
+                            <label for="fullName" class="block text-gray-700 text-sm font-medium mb-1">পূর্ণ নাম</label>
+                            <input type="text" id="fullName" name="fullName" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="dob" class="block text-gray-700 text-sm font-medium mb-1">জন্ম তারিখ</label>
+                            <input type="date" id="dob" name="dob" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="gender" class="block text-gray-700 text-sm font-medium mb-1">লিঙ্গ</label>
+                            <select id="gender" name="gender" required
+                                    class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200 bg-white">
+                                <option value="">লিঙ্গ নির্বাচন করুন</option>
+                                <option value="male">পুরুষ</option>
+                                <option value="female">মহিলা</option>
+                                <option value="other">অন্যান্য</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="email" class="block text-gray-700 text-sm font-medium mb-1">ইমেইল ঠিকানা</label>
+                            <input type="email" id="email" name="email" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="phone" class="block text-gray-700 text-sm font-medium mb-1">ফোন নম্বর</label>
+                            <input type="tel" id="phone" name="phone" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                    </div>
+                </fieldset>
+
+                <!-- Address Information Section -->
+                <fieldset class="border border-pink-300 p-6 rounded-xl shadow-sm">
+                    <legend class="text-2xl font-semibold text-pink-500 px-3 -ml-3">ঠিকানার তথ্য</legend>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <div class="md:col-span-2">
+                            <label for="streetAddress" class="block text-gray-700 text-sm font-medium mb-1">রাস্তা/বাড়ির ঠিকানা</label>
+                            <input type="text" id="streetAddress" name="streetAddress" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="city" class="block text-gray-700 text-sm font-medium mb-1">শহর</label>
+                            <input type="text" id="city" name="city" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="state" class="block text-gray-700 text-sm font-medium mb-1">জেলা/বিভাগ</label>
+                            <input type="text" id="state" name="state" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="zipCode" class="block text-gray-700 text-sm font-medium mb-1">পোস্ট কোড</label>
+                            <input type="text" id="zipCode" name="zipCode" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="country" class="block text-gray-700 text-sm font-medium mb-1">দেশ</label>
+                            <input type="text" id="country" name="country" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                    </div>
+                </fieldset>
+
+                <!-- Academic Information Section -->
+                <fieldset class="border border-pink-300 p-6 rounded-xl shadow-sm">
+                    <legend class="text-2xl font-semibold text-pink-500 px-3 -ml-3">শিক্ষাগত তথ্য</legend>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <div>
+                            <label for="lastSchool" class="block text-gray-700 text-sm font-medium mb-1">সর্বশেষ মাদরাসা/শিক্ষা প্রতিষ্ঠান</label>
+                            <input type="text" id="lastSchool" name="lastSchool" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="gradeDegree" class="block text-gray-700 text-sm font-medium mb-1">সর্বশেষ শ্রেণী/ডিগ্রী</label>
+                            <input type="text" id="gradeDegree" name="gradeDegree" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="graduationYear" class="block text-gray-700 text-sm font-medium mb-1">উত্তীর্ণ হওয়ার বছর</label>
+                            <input type="number" id="graduationYear" name="graduationYear" min="1900" max="2099" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                    </div>
+                </fieldset>
+
+                <!-- Course Selection Section -->
+                <fieldset class="border border-pink-300 p-6 rounded-xl shadow-sm">
+                    <legend class="text-2xl font-semibold text-pink-500 px-3 -ml-3">কোর্স নির্বাচন</legend>
+                    <div class="mt-4">
+                        <label for="course" class="block text-gray-700 text-sm font-medium mb-1">আবেদনের কোর্স</label>
+                        <select id="course" name="course" required
+                                class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200 bg-white">
+                            <option value="">একটি কোর্স নির্বাচন করুন</option>
+                            <option value="হিফজুল কুরআন">হিফজুল কুরআন</option>
+                            <option value="আলিয়া মাদরাসা">আলিয়া মাদরাসা</option>
+                            <option value="কওমী মাদরাসা">কওমী মাদরাসা</option>
+                            <option value="ইসলামিক স্টাডিজ">ইসলামিক স্টাডিজ</option>
+                            <option value="আরবি ভাষা ও সাহিত্য">আরবি ভাষা ও সাহিত্য</option>
+                        </select>
+                    </div>
+                </fieldset>
+
+                <!-- Emergency Contact Section -->
+                <fieldset class="border border-pink-300 p-6 rounded-xl shadow-sm">
+                    <legend class="text-2xl font-semibold text-pink-500 px-3 -ml-3">জরুরী যোগাযোগ</legend>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+                        <div>
+                            <label for="ecName" class="block text-gray-700 text-sm font-medium mb-1">পূর্ণ নাম</label>
+                            <input type="text" id="ecName" name="ecName" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div>
+                            <label for="ecRelationship" class="block text-gray-700 text-sm font-medium mb-1">সম্পর্ক</label>
+                            <input type="text" id="ecRelationship" name="ecRelationship" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="ecPhone" class="block text-gray-700 text-sm font-medium mb-1">ফোন নম্বর</label>
+                            <input type="tel" id="ecPhone" name="ecPhone" required
+                                   class="w-full p-3 border border-pink-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-300 transition duration-200">
+                        </div>
+                    </div>
+                </fieldset>
+
+                <!-- Consent and Submit Button -->
+                <div class="flex items-center justify-between flex-wrap gap-4">
+                    <div class="flex items-center">
+                        <input type="checkbox" id="consent" name="consent" required
+                               class="h-5 w-5 text-pink-600 rounded border-gray-300 focus:ring-pink-500">
+                        <label for="consent" class="ml-2 block text-gray-700 text-sm font-medium">আমি শর্তাবলী ও নিয়মাবলী সম্মত।</label>
+                    </div>
+                    <button type="submit"
+                            class="px-8 py-3 bg-pink-500 text-white font-semibold rounded-full shadow-lg hover:bg-pink-600 focus:outline-none focus:ring-4 focus:ring-pink-300 transition duration-300 ease-in-out transform hover:scale-105">
+                        আবেদন জমা দিন
+                    </button>
+                </div>
+            </form>
+        </div>
+
+
+        <!-- Success/Loading Message Modal -->
+        <div id="statusModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center hidden">
+            <div class="bg-white p-8 rounded-xl shadow-2xl text-center max-w-sm w-full border border-pink-200">
+                <div id="loadingSpinner" class="flex justify-center items-center mb-6">
+                    <div class="spinner"></div>
+                </div>
+                <div id="successAnimation" class="hidden">
+                    <svg class="checkmark-circle checkmark-circle-success" viewBox="0 0 100 100">
+                        <path class="checkmark-circle-path" fill="none" d="M20,50 L40,70 L80,30" />
+                    </svg>
+                </div>
+                <div id="errorAnimation" class="hidden">
+                    <svg class="checkmark-circle checkmark-circle-error" viewBox="0 0 100 100">
+                        <line x1="30" y1="30" x2="70" y2="70" stroke="white" stroke-width="8" stroke-linecap="round" />
+                        <line x1="70" y1="30" x2="30" y2="70" stroke="white" stroke-width="8" stroke-linecap="round" />
+                    </svg>
+                </div>
+                <h2 id="modalTitle" class="text-3xl font-bold text-pink-600 mb-4"></h2>
+                <p id="modalMessage" class="text-gray-700 mb-6"></p>
+                <div id="modalButtons" class="flex justify-center gap-2 hidden">
+                    <button id="downloadImageButton"
+                            class="px-6 py-3 bg-pink-500 text-white font-semibold rounded-full shadow-lg hover:bg-pink-600 focus:outline-none focus:ring-4 focus:ring-pink-300 transition duration-300 ease-in-out transform hover:scale-105 mr-2">
+                        ছবি ডাউনলোড করুন
+                    </button>
+                    <button id="closeModalButton"
+                            class="px-6 py-3 bg-gray-300 text-gray-800 font-semibold rounded-full shadow-lg hover:bg-gray-400 focus:outline-none focus:ring-4 focus:ring-gray-200 transition duration-300 ease-in-out transform hover:scale-105">
+                        বন্ধ করুন
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden div for image content -->
+    <div id="imageContentForDownload" class="p-8 bg-white rounded-lg shadow-md">
+        <h1 class="text-3xl font-bold text-center text-green-700 mb-2">দোয়া মল্লিকপুর তা`লিমুল কোরআন মহিলা মাদ্রাসা ও এতিমখানা</h1>
+        <h1 class="text-3xl font-bold text-center text-pink-700 mb-6">ভর্তি আবেদনের সারসংক্ষেপ</h1>
+        <div class="space-y-4 text-gray-800">
+            <h2 class="text-xl font-semibold text-pink-600 border-b pb-2 mb-2">ব্যক্তিগত তথ্য</h2>
+            <p><strong>পূর্ণ নাম:</strong> <span id="pdfFullName"></span></p>
+            <p><strong>জন্ম তারিখ:</strong> <span id="pdfDob"></span></p>
+            <p><strong>লিঙ্গ:</strong> <span id="pdfGender"></span></p>
+            <p><strong>ইমেইল:</strong> <span id="pdfEmail"></span></p>
+            <p><strong>ফোন:</strong> <span id="pdfPhone"></span></p>
+
+            <h2 class="text-xl font-semibold text-pink-600 border-b pb-2 mb-2 mt-6">ঠিকানার তথ্য</h2>
+            <p><strong>রাস্তা:</strong> <span id="pdfStreetAddress"></span></p>
+            <p><strong>শহর:</strong> <span id="pdfCity"></span></p>
+            <p><strong>জেলা/বিভাগ:</strong> <span id="pdfState"></span></p>
+            <p><strong>পোস্ট কোড:</strong> <span id="pdfZipCode"></span></p>
+            <p><strong>দেশ:</strong> <span id="pdfCountry"></span></p>
+
+            <h2 class="text-xl font-semibold text-pink-600 border-b pb-2 mb-2 mt-6">শিক্ষাগত তথ্য</h2>
+            <p><strong>সর্বশেষ মাদরাসা/শিক্ষা প্রতিষ্ঠান:</strong> <span id="pdfLastSchool"></span></p>
+            <p><strong>সর্বশেষ শ্রেণী/ডিগ্রী:</strong> <span id="pdfGradeDegree"></span></p>
+            <p><strong>উত্তীর্ণ হওয়ার বছর:</strong> <span id="pdfGraduationYear"></span></p>
+
+            <h2 class="text-xl font-semibold text-pink-600 border-b pb-2 mb-2 mt-6">কোর্স নির্বাচন</h2>
+            <p><strong>আবেদনের কোর্স:</strong> <span id="pdfCourse"></span></p>
+
+            <h2 class="text-xl font-semibold text-pink-600 border-b pb-2 mb-2 mt-6">জরুরী যোগাযোগ</h2>
+            <p><strong>নাম:</strong> <span id="pdfEcName"></span></p>
+            <p><strong>সম্পর্ক:</strong> <span id="pdfEcRelationship"></span></p>
+            <p><strong>ফোন:</strong> <span id="pdfEcPhone"></span></p>
+
+            <p class="mt-8 text-sm text-gray-600"><em>আবেদন জমা দেওয়ার তারিখ: <span id="pdfSubmissionDate"></span></em></p>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyDeJ6gjqFVsLYmBJNwT2gyxjevwwDJdpZY",
+            authDomain: "ak-panel-d967c.firebaseapp.com",
+            databaseURL: "https://ak-panel-d967c-default-rtdb.firebaseio.com",
+            projectId: "ak-panel-d967c",
+            storageBucket: "ak-panel-d967c.firebasestorage.app",
+            messagingSenderId: "777962700104",
+            appId: "1:777962700104:web:f2b7c469ff2e5c6d21477d"
+        };
+
+        // Initialize Firebase
+        const app = firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const studentsRef = database.ref('admittedStudents');
+
+        let admittedStudents = []; // This will now be populated from Firebase
+        let currentRollNumber = 101; // Starting roll number, will be updated from DB
+
+        // Get modal elements
+        const statusModal = document.getElementById('statusModal');
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        const successAnimation = document.getElementById('successAnimation');
+        const errorAnimation = document.getElementById('errorAnimation');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalButtons = document.getElementById('modalButtons');
+        const downloadImageButton = document.getElementById('downloadImageButton'); // Get the download button from the modal
+
+        // Function to show a specific page and hide others
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.add('hidden');
+            });
+            document.getElementById(pageId).classList.remove('hidden');
+        }
+
+        // Function to render the student list table
+        function renderStudentList() {
+            const studentTableBody = document.getElementById('studentTableBody');
+            studentTableBody.innerHTML = ''; // Clear existing rows
+            const noStudentsMessage = document.getElementById('noStudentsMessage');
+
+            if (admittedStudents.length === 0) {
+                noStudentsMessage.classList.remove('hidden');
+            } else {
+                noStudentsMessage.classList.add('hidden');
+                admittedStudents.forEach(student => {
+                    const row = studentTableBody.insertRow();
+                    row.classList.add('hover:bg-pink-50');
+                    const rollCell = row.insertCell();
+                    rollCell.classList.add('py-3', 'px-4', 'whitespace-nowrap', 'text-gray-800');
+                    rollCell.textContent = student.roll;
+
+                    const nameCell = row.insertCell();
+                    nameCell.classList.add('py-3', 'px-4', 'whitespace-nowrap', 'text-gray-800');
+                    nameCell.textContent = student.fullName;
+                });
+            }
+        }
+
+        // Function to populate the image content div with student data
+        function populateImageContent(studentData) {
+            document.getElementById('pdfFullName').textContent = studentData.fullName;
+            document.getElementById('pdfDob').textContent = studentData.dob;
+            document.getElementById('pdfGender').textContent = studentData.gender;
+            document.getElementById('pdfEmail').textContent = studentData.email;
+            document.getElementById('pdfPhone').textContent = studentData.phone;
+            document.getElementById('pdfStreetAddress').textContent = studentData.streetAddress;
+            document.getElementById('pdfCity').textContent = studentData.city;
+            document.getElementById('pdfState').textContent = studentData.state;
+            document.getElementById('pdfZipCode').textContent = studentData.zipCode;
+            document.getElementById('pdfCountry').textContent = studentData.country;
+            document.getElementById('pdfLastSchool').textContent = studentData.lastSchool;
+            document.getElementById('pdfGradeDegree').textContent = studentData.gradeDegree;
+            document.getElementById('pdfGraduationYear').textContent = studentData.graduationYear;
+            document.getElementById('pdfCourse').textContent = studentData.course;
+            document.getElementById('pdfEcName').textContent = studentData.ecName;
+            document.getElementById('pdfEcRelationship').textContent = studentData.ecRelationship;
+            document.getElementById('pdfEcPhone').textContent = studentData.ecPhone;
+            document.getElementById('pdfSubmissionDate').textContent = studentData.submissionDate;
+        }
+
+        // Event listener for Admission Form submission
+        document.getElementById('admissionForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent default form submission
+
+            // Show loading modal
+            statusModal.classList.remove('hidden');
+            loadingSpinner.classList.remove('hidden');
+            successAnimation.classList.add('hidden');
+            errorAnimation.classList.add('hidden');
+            modalTitle.textContent = 'আবেদন জমা দেওয়া হচ্ছে...';
+            modalMessage.textContent = 'অনুগ্রহ করে অপেক্ষা করুন।';
+            modalButtons.classList.add('hidden');
+
+
+            // Collect form data
+            const formData = {
+                fullName: document.getElementById('fullName').value,
+                dob: document.getElementById('dob').value,
+                gender: document.getElementById('gender').value,
+                email: document.getElementById('email').value,
+                phone: document.getElementById('phone').value,
+                streetAddress: document.getElementById('streetAddress').value,
+                city: document.getElementById('city').value,
+                state: document.getElementById('state').value,
+                zipCode: document.getElementById('zipCode').value,
+                country: document.getElementById('country').value,
+                lastSchool: document.getElementById('lastSchool').value,
+                gradeDegree: document.getElementById('gradeDegree').value,
+                graduationYear: document.getElementById('graduationYear').value,
+                course: document.getElementById('course').value,
+                ecName: document.getElementById('ecName').value,
+                ecRelationship: document.getElementById('ecRelationship').value,
+                ecPhone: document.getElementById('ecPhone').value,
+                submissionDate: new Date().toLocaleDateString('bn-BD', { year: 'numeric', month: 'long', day: 'numeric' }),
+                roll: currentRollNumber // Assign current roll number before incrementing
+            };
+
+            // Push the new student data to Firebase
+            studentsRef.push(formData)
+                .then(() => {
+                    console.log("Student data saved to Firebase successfully!");
+                    loadingSpinner.classList.add('hidden');
+                    successAnimation.classList.remove('hidden');
+                    modalTitle.textContent = 'সফল!';
+                    modalMessage.textContent = 'আপনার আবেদন সফলভাবে জমা দেওয়া হয়েছে। আপনি এখন আপনার ফর্মের ছবি ডাউনলোড করতে পারেন।';
+                    modalButtons.classList.remove('hidden');
+                    downloadImageButton.onclick = () => downloadImage(formData); // Set click handler for download button
+
+                    populateImageContent(formData); // Populate for download
+
+                    // Optionally, clear the form after submission
+                    event.target.reset();
+                })
+                .catch(error => {
+                    console.error("Error saving student data to Firebase:", error);
+                    loadingSpinner.classList.add('hidden');
+                    errorAnimation.classList.remove('hidden');
+                    modalTitle.textContent = 'ত্রুটি!';
+                    modalMessage.textContent = 'আবেদন জমা দিতে সমস্যা হয়েছে। অনুগ্রহ করে আবার চেষ্টা করুন।';
+                    modalButtons.classList.remove('hidden'); // Still show buttons to close
+                    downloadImageButton.onclick = null; // Disable download button on error
+                });
+        });
+
+        // Function to download image
+        function downloadImage(dataToRender) {
+            populateImageContent(dataToRender); // Ensure the hidden div has the correct data
+            const imageContent = document.getElementById('imageContentForDownload');
+            
+            html2canvas(imageContent, {
+                scale: 2,
+                logging: true,
+                useCORS: true,
+                backgroundColor: '#ffffff'
+            }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = `ভর্তি_আবেদন_ফর্ম_${dataToRender.roll}.png`; // Dynamic filename
+                link.href = canvas.toDataURL('image/png');
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            }).catch(error => {
+                console.error('Error generating image:', error);
+            });
+        }
+
+        // Event listener for Close Modal button
+        document.getElementById('closeModalButton').addEventListener('click', function() {
+            statusModal.classList.add('hidden');
+            showPage('studentListPage'); // Go back to the student list page
+        });
+
+        // Event listener for "নতুন আবেদন করুন" button on the student list page
+        document.getElementById('applyNewButton').addEventListener('click', function() {
+            showPage('admissionFormPage');
+        });
+
+        // Listen for real-time updates from Firebase Realtime Database
+        studentsRef.on('value', (snapshot) => {
+            admittedStudents = [];
+            let maxRoll = 100; // Start checking from 100 to ensure 101 is the first if no data
+            snapshot.forEach((childSnapshot) => {
+                const student = childSnapshot.val();
+                admittedStudents.push(student);
+                if (student.roll && student.roll > maxRoll) {
+                    maxRoll = student.roll;
+                }
+            });
+            // Sort students by roll number for consistent display
+            admittedStudents.sort((a, b) => a.roll - b.roll);
+            currentRollNumber = maxRoll + 1; // Set next available roll number
+            renderStudentList(); // Re-render the list with updated data
+        }, (errorObject) => {
+            console.error("The read failed: " + errorObject.name);
+            // You might want to show an error message to the user here
+        });
+
+        // Initial render on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            // The onValue listener will handle the initial rendering
+            showPage('studentListPage'); // Show the student list page first
+        });
+    </script>
+</body>
+</html>
 
